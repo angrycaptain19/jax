@@ -583,7 +583,7 @@ def conv_general_dilated(
   dnums = conv_dimension_numbers(lhs.shape, rhs.shape, dimension_numbers)
   if lhs_dilation is None:
     lhs_dilation = (1,) * (lhs.ndim - 2)
-  elif isinstance(padding, str) and not len(lhs_dilation) == lhs_dilation.count(1):
+  elif isinstance(padding, str) and len(lhs_dilation) != lhs_dilation.count(1):
     raise ValueError(
         "String padding is not implemented for transposed convolution "
         "using this op. Please either exactly specify the required padding or "
@@ -1260,14 +1260,13 @@ def reduce_window(operand: Array, init_value: Array, computation: Callable,
   if monoid_reducer:
     return monoid_reducer(operand, window_dimensions, window_strides, padding,
                           base_dilation, window_dilation)
-  else:
-    jaxpr, consts = _reduction_jaxpr(computation, _abstractify(init_value))
-    return reduce_window_p.bind(
-        operand, init_value, jaxpr=jaxpr, consts=consts,
-        window_dimensions=tuple(window_dimensions),
-        window_strides=tuple(window_strides), padding=padding,
-        base_dilation=tuple(base_dilation),
-        window_dilation=tuple(window_dilation))
+  jaxpr, consts = _reduction_jaxpr(computation, _abstractify(init_value))
+  return reduce_window_p.bind(
+      operand, init_value, jaxpr=jaxpr, consts=consts,
+      window_dimensions=tuple(window_dimensions),
+      window_strides=tuple(window_strides), padding=padding,
+      base_dilation=tuple(base_dilation),
+      window_dilation=tuple(window_dilation))
 
 def _get_monoid_window_reducer(monoid_op: Callable, x: Array) -> Optional[Callable]:
   aval = core.get_aval(x)
@@ -1478,9 +1477,8 @@ def full(shape: Shape, fill_value: Array, dtype: Optional[DType] = None) -> Arra
 def _device_put_raw(x, weak_type=None):
   if isinstance(x, xla.DeviceArray):
     return x
-  else:
-    aval = raise_to_shaped(core.get_aval(x), weak_type=weak_type)
-    return xla.array_result_handler(None, aval)(*xla.device_put(x))
+  aval = raise_to_shaped(core.get_aval(x), weak_type=weak_type)
+  return xla.array_result_handler(None, aval)(*xla.device_put(x))
 
 def iota(dtype: DType, size: int) -> Array:
   """Wraps XLA's `Iota
@@ -1653,10 +1651,7 @@ def _conv_transpose_padding(k, s, padding):
   """
   if padding == 'SAME':
     pad_len = k + s - 2
-    if s > k - 1:
-      pad_a = k - 1
-    else:
-      pad_a = int(np.ceil(pad_len / 2))
+    pad_a = k - 1 if s > k - 1 else int(np.ceil(pad_len / 2))
   elif padding == 'VALID':
     pad_len = k + s - 2 + _max(k - s, 0)
     pad_a = k - 1
@@ -1911,7 +1906,7 @@ def _upcast_fp16_for_computation(f):
   @functools.wraps(f)
   def f_wrapped(x):
     dtype = _dtype(x)
-    if dtype == np.float16 or dtype == dtypes.bfloat16:
+    if dtype in [np.float16, dtypes.bfloat16]:
       return convert_element_type(
         f(convert_element_type(x, np.float32)), dtype)
     return f(x)
@@ -1964,10 +1959,9 @@ ShapedArray.reshape = core.aval_method(reshape)      # clobbered by lax_numpy
 def _iter(tracer):
   if tracer.ndim == 0:
     raise TypeError("iteration over a 0-d array")  # same as numpy error
-  else:
-    n = int(tracer.shape[0])
-    # return (index_in_dim(tracer, i, keepdims=False) for i in range(n))
-    return iter([index_in_dim(tracer, i, keepdims=False) for i in range(n)])
+  n = int(tracer.shape[0])
+  # return (index_in_dim(tracer, i, keepdims=False) for i in range(n))
+  return iter([index_in_dim(tracer, i, keepdims=False) for i in range(n)])
 ShapedArray._iter = staticmethod(_iter)
 
 # Add some ad handlers that use (or could use) lax primitives
@@ -2084,12 +2078,11 @@ def naryop_dtype_rule(result_dtype, accepted_dtypes, name, *avals, **kwargs):
             "to cast a float0 array to a regular zeros array. \n"
             "If you didn't expect to get a float0 you might have accidentally "
             "taken a gradient with respect to an integer argument.")
-      else:
-        msg = ('{} does not accept dtype {} at position {}. '
-               'Accepted dtypes at position {} are subtypes of {}.')
-        typename = str(np.dtype(aval_dtype).name)
-        typenames = ', '.join(t.__name__ for t in types)
-        raise TypeError(msg.format(name, typename, i, i, typenames))
+      msg = ('{} does not accept dtype {} at position {}. '
+             'Accepted dtypes at position {} are subtypes of {}.')
+      typename = str(np.dtype(aval_dtype).name)
+      typenames = ', '.join(t.__name__ for t in types)
+      raise TypeError(msg.format(name, typename, i, i, typenames))
   _check_same_dtypes(name, False, *aval_dtypes)
   return result_dtype(*avals)
 
@@ -2145,8 +2138,7 @@ def _broadcast_translate(translate: Callable):
       return array
     bcast_dims = tuple(range(len(result_shape) - len(array_shape),
                              len(result_shape)))
-    result = xops.BroadcastInDim(array, result_shape, bcast_dims)
-    return result
+    return xops.BroadcastInDim(array, result_shape, bcast_dims)
 
   def _broadcasted_translation_rule(c, *args, **kwargs):
     shapes = [c.get_shape(arg).dimensions() for arg in args]
@@ -2176,14 +2168,14 @@ def _brcast(x, *others):
 def _brcast_to(x, shape):
   x_shape = np.shape(x)
   assert x_shape != shape
-  if x_shape:
-    assert len(x_shape) == len(shape)
-    broadcast_dimensions, = np.where(np.equal(x_shape, shape))
-    squeezed_dimensions, = np.where(np.not_equal(x_shape, shape))
-    squeezed = squeeze(x, squeezed_dimensions)
-    return broadcast_in_dim(squeezed, shape, broadcast_dimensions)
-  else:
+  if not x_shape:
     return broadcast(x, shape)
+
+  assert len(x_shape) == len(shape)
+  broadcast_dimensions, = np.where(np.equal(x_shape, shape))
+  squeezed_dimensions, = np.where(np.not_equal(x_shape, shape))
+  squeezed = squeeze(x, squeezed_dimensions)
+  return broadcast_in_dim(squeezed, shape, broadcast_dimensions)
 
 
 _float = {np.floating}
@@ -2302,21 +2294,21 @@ ad.defjvp(asin_p, lambda g, x: mul(g, rsqrt(_const(x, 1) - square(x))))
 
 @partial(xla.lower_fun, multiple_results=False)
 def acos_translation_rule(x):
-  if dtypes.issubdtype(_dtype(x), np.complexfloating):
-    result = mul(_const(x, 1j), acosh(x))
-    # By convention, numpy chooses the branch with positive real part.
-    rpart = real(result)
-    return select(
-      gt(rpart, _const(rpart, 0)),
-      result,
-      neg(result)
-    )
-  else:
+  if not dtypes.issubdtype(_dtype(x), np.complexfloating):
     return select(
         ne(x, _const(x, -1.0)),
         mul(_const(x, 2),
             atan2(sqrt(sub(_const(x, 1), square(x))), add(_const(x, 1), x))),
         full_like(x, np.pi))
+
+  result = mul(_const(x, 1j), acosh(x))
+  # By convention, numpy chooses the branch with positive real part.
+  rpart = real(result)
+  return select(
+    gt(rpart, _const(rpart, 0)),
+    result,
+    neg(result)
+  )
 
 acos_p = standard_unop(_float | _complex, 'acos',
                        translation_rule=acos_translation_rule)
@@ -2561,12 +2553,12 @@ def _sub_transpose(t, x, y):
   # we instantiate zeros for convenience, it doesn't always hold.
   # TODO(mattjj): re-enable this assertion, don't return None below
   # assert ad.is_undefined_primal(x) and ad.is_undefined_primal(y)
-  if type(t) is ad_util.Zero:
-    x_bar = ad_util.Zero(x.aval) if ad.is_undefined_primal(x) else None
-    y_bar = ad_util.Zero(y.aval) if ad.is_undefined_primal(y) else None
-    return [x_bar, y_bar]
-  else:
+  if type(t) is not ad_util.Zero:
     return [t, neg(t)]
+
+  x_bar = ad_util.Zero(x.aval) if ad.is_undefined_primal(x) else None
+  y_bar = ad_util.Zero(y.aval) if ad.is_undefined_primal(y) else None
+  return [x_bar, y_bar]
 
 sub_p = standard_naryop([_num, _num], 'sub')
 ad.defjvp(sub_p,
@@ -2962,8 +2954,6 @@ def _conv_general_dilated_batch_rule(
       out = conv_general_dilated(new_lhs, rhs, window_strides, padding,
                                  lhs_dilation, rhs_dilation, dimension_numbers,
                                  feature_group_count, precision=precision)
-      out = _reshape_axis_out_of(out_spec[0], lhs.shape[lhs_bdim], out)
-      return out, out_spec[0]
     else:
       new_lhs = _reshape_axis_out_of(lhs_spec[0] + int(lhs_bdim <= lhs_spec[0]),
                                      batch_group_count, lhs)
@@ -2975,9 +2965,8 @@ def _conv_general_dilated_batch_rule(
                                  lhs_dilation, rhs_dilation, dimension_numbers,
                                  feature_group_count, batch_group_count,
                                  precision=precision)
-      out = _reshape_axis_out_of(out_spec[0], lhs.shape[lhs_bdim], out)
-      return out, out_spec[0]
-
+    out = _reshape_axis_out_of(out_spec[0], lhs.shape[lhs_bdim], out)
+    return out, out_spec[0]
   elif rhs_bdim is not None:
     if feature_group_count == 1 and batch_group_count == 1:
       new_rhs = _reshape_axis_into(rhs_bdim, rhs_spec[0], rhs)
@@ -2986,7 +2975,6 @@ def _conv_general_dilated_batch_rule(
                                  feature_group_count, batch_group_count,
                                  precision=precision)
       out = _reshape_axis_out_of(out_spec[1], rhs.shape[rhs_bdim], out)
-      return out, out_spec[1]
     else:
       # groups need to be outermost, so we need to factor them out of the
       # rhs output feature dim, then factor the batch dim into the remaining rhs
@@ -3008,7 +2996,8 @@ def _conv_general_dilated_batch_rule(
       out = _reshape_axis_out_of(out_spec[1], group_count, out)
       out = _reshape_axis_out_of(out_spec[1] + 1, rhs.shape[rhs_bdim], out)
       out = _reshape_axis_into(out_spec[1], out_spec[1] + 1, out)
-      return out, out_spec[1]
+
+    return out, out_spec[1]
 
 def _masked(padded_value, logical_shape, dimensions, value=0):
   """

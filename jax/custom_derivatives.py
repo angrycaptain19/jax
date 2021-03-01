@@ -213,16 +213,12 @@ class custom_jvp:
     args_flat, in_tree = tree_flatten(dyn_args)
     flat_fun, out_tree1 = flatten_fun_nokwargs(f_, in_tree)
     flat_jvp, out_tree2 = _flatten_jvp(jvp, in_tree)
-    if config.omnistaging_enabled:
+    if not config.omnistaging_enabled and _initial_style_staging():
+      out_flat = custom_jvp_call_jaxpr(flat_fun, flat_jvp, *args_flat)  # type: ignore
+      out_tree = out_tree1()
+    else:
       out_flat = custom_jvp_call_p.bind(flat_fun, flat_jvp, *args_flat)
       _, out_tree = lu.merge_linear_aux(out_tree1, out_tree2)
-    else:
-      if _initial_style_staging():
-        out_flat = custom_jvp_call_jaxpr(flat_fun, flat_jvp, *args_flat)  # type: ignore
-        out_tree = out_tree1()
-      else:
-        out_flat = custom_jvp_call_p.bind(flat_fun, flat_jvp, *args_flat)
-        _, out_tree = lu.merge_linear_aux(out_tree1, out_tree2)
     return tree_unflatten(out_tree, out_flat)
 
 def _add_args(f, extra_args):
@@ -230,7 +226,7 @@ def _add_args(f, extra_args):
 
 @lu.transformation
 def _add_args_(extra_args, *args, **kwargs):
-  extra_args = tuple([arg.val for arg in extra_args])
+  extra_args = tuple(arg.val for arg in extra_args)
   all_args = (extra_args + args)
   yield (yield all_args, kwargs)
 
@@ -489,21 +485,15 @@ class custom_vjp:
     flat_fun, out_tree = flatten_fun_nokwargs(f_, in_tree)
     flat_fwd, out_trees = _flatten_fwd(fwd, in_tree)
     flat_bwd = _flatten_bwd(bwd, in_tree, in_avals, out_trees)
-    if config.omnistaging_enabled:
-      out_flat = custom_vjp_call_p.bind(flat_fun, flat_fwd, flat_bwd, *args_flat,
-                                        out_trees=out_trees)
+    if not config.omnistaging_enabled and _initial_style_staging():
+      out_flat = custom_vjp_call_jaxpr(flat_fun, flat_fwd, flat_bwd,  # type: ignore
+                                       *args_flat, out_trees=out_trees)
+      out_tree = out_tree()
+    else:
+      out_flat = custom_vjp_call_p.bind(flat_fun, flat_fwd, flat_bwd,
+                                        *args_flat, out_trees=out_trees)
       fst, aux = lu.merge_linear_aux(out_tree, out_trees)
       out_tree = aux if fst else aux[0]
-    else:
-      if _initial_style_staging():
-        out_flat = custom_vjp_call_jaxpr(flat_fun, flat_fwd, flat_bwd,  # type: ignore
-                                         *args_flat, out_trees=out_trees)
-        out_tree = out_tree()
-      else:
-        out_flat = custom_vjp_call_p.bind(flat_fun, flat_fwd, flat_bwd,
-                                          *args_flat, out_trees=out_trees)
-        fst, aux = lu.merge_linear_aux(out_tree, out_trees)
-        out_tree = aux if fst else aux[0]
     return tree_unflatten(out_tree, out_flat)
 
 @partial(partial, tree_map)

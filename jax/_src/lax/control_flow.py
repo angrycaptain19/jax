@@ -501,7 +501,7 @@ def _while_partial_eval(trace: pe.JaxprTrace, *tracers: pe.Tracer, cond_nconsts:
   cond_jaxpr_known, _, cond_uk = partial_eval_jaxpr(  # type: ignore
       cond_jaxpr, cond_consts_uk + carry_uk, instantiate=False)
 
-  if cond_uk[0] or all([not uk for uk in unknowns]) or all(unknowns):
+  if cond_uk[0] or not any(unknowns) or all(unknowns):
     # If conditional is unknown, or all inputs are known, or all are unknown,
     # just do the default processing.
     return trace.default_process_primitive(while_p, tracers, params)
@@ -586,7 +586,7 @@ def switch(index, branches: Sequence[Callable], operand):
 
   branches = tuple(branches)
 
-  if len(branches) == 0:
+  if not branches:
     raise ValueError("Empty branch sequence")
   elif len(branches) == 1:
     return branches[0](operand)
@@ -1416,9 +1416,8 @@ def _scan_impl(*args, reverse, length, num_consts, num_carry, jaxpr, linear,
 def _stack(aval, vals):
   if aval is core.abstract_unit:
     return core.unit
-  else:
-    vals = [lax.expand_dims(x, (0,)) for x in vals]
-    return lax.concatenate(vals, 0)
+  vals = [lax.expand_dims(x, (0,)) for x in vals]
+  return lax.concatenate(vals, 0)
 
 def _concatenate(aval, x1, x2):
   if aval is core.abstract_unit:
@@ -1429,10 +1428,9 @@ def _concatenate(aval, x1, x2):
 def _split_leading_dim(i, aval, x):
   if aval is core.abstract_unit:
     return (core.unit, core.unit)
-  else:
-    assert x.ndim >= 1
-    return (lax.slice_in_dim(x, 0, i),
-            lax.slice_in_dim(x, i, x.shape[0]))
+  assert x.ndim >= 1
+  return (lax.slice_in_dim(x, 0, i),
+          lax.slice_in_dim(x, i, x.shape[0]))
 
 def _dynamic_index_array(i, aval, x):
   if aval is core.abstract_unit:
@@ -1461,19 +1459,17 @@ def _update_array(i, aval, xs, x):
 def _partition_leading(sz0, sz1, aval, x):
   if aval is core.abstract_unit:
     return core.unit
-  else:
-    assert x.ndim >= 1
-    assert x.shape[0] == sz0 * sz1
-    return lax.reshape(x, (sz0, sz1, *x.shape[1:]))
+  assert x.ndim >= 1
+  assert x.shape[0] == sz0 * sz1
+  return lax.reshape(x, (sz0, sz1, *x.shape[1:]))
 
 def _combine_leading(sz0, sz1, aval, x):
   if aval is core.abstract_unit:
     return core.unit
-  else:
-    assert x.ndim >= 2
-    assert x.shape[0] == sz0
-    assert x.shape[1] == sz1
-    return lax.collapse(x, 0, 2)
+  assert x.ndim >= 2
+  assert x.shape[0] == sz0
+  assert x.shape[1] == sz1
+  return lax.collapse(x, 0, 2)
 
 def _prepend_dim_to_aval(sz, aval):
   if aval is core.abstract_unit:

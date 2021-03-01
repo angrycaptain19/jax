@@ -27,8 +27,7 @@ Array = Any
 
 map = safe_map
 
-jaxval_adders = {}
-jaxval_adders[Unit] = lambda _, __: unit
+jaxval_adders = {Unit: lambda _, __: unit}
 
 def add_jaxvals(x, y):
   if core.get_aval(x) is core.abstract_unit is core.get_aval(y):

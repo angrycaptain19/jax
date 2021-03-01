@@ -35,11 +35,7 @@ def _fft_core(func_name, fft_type, a, s, axes, norm):
 
   orig_axes = axes
   if axes is None:
-    if s is None:
-      axes = range(a.ndim)
-    else:
-      axes = range(a.ndim - len(s), a.ndim)
-
+    axes = range(a.ndim) if s is None else range(a.ndim - len(s), a.ndim)
   if len(axes) != len(set(axes)):
     raise ValueError(
         "%s does not support repeated axes. Got axes %s." % (full_name, axes))

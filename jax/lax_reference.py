@@ -100,13 +100,13 @@ sub = np.subtract
 mul = np.multiply
 
 def div(lhs, rhs):
-  if dtypes.issubdtype(dtypes.result_type(lhs), np.integer):
-    quotient = np.floor_divide(lhs, rhs)
-    select = np.logical_and(np.sign(lhs) != np.sign(rhs),
-                             np.remainder(lhs, rhs) != 0)
-    return np.where(select, quotient + 1, quotient)
-  else:
+  if not dtypes.issubdtype(dtypes.result_type(lhs), np.integer):
     return np.divide(lhs, rhs)
+
+  quotient = np.floor_divide(lhs, rhs)
+  select = np.logical_and(np.sign(lhs) != np.sign(rhs),
+                           np.remainder(lhs, rhs) != 0)
+  return np.where(select, quotient + 1, quotient)
 
 def rem(lhs, rhs):
   return np.sign(lhs) * np.remainder(np.abs(lhs), np.abs(rhs))
@@ -326,14 +326,14 @@ def _conv(lhs, rhs, window_strides, pads):
       view, view_axes, rhs, rhs_axes, out_axes, use_blas=True)
 
 def padtype_to_pads(in_shape, filter_shape, window_strides, padding):
-  if padding.upper() == 'SAME':
-    out_shape = np.ceil(np.true_divide(in_shape, window_strides)).astype(int)
-    pad_sizes = [_max((out_size - 1) * stride + filter_size - in_size, 0)
-                 for out_size, stride, filter_size, in_size
-                 in zip(out_shape, window_strides, filter_shape, in_shape)]
-    return [(pad_size // 2, pad_size - pad_size // 2) for pad_size in pad_sizes]
-  else:
+  if padding.upper() != 'SAME':
     return [(0, 0)] * len(in_shape)
+
+  out_shape = np.ceil(np.true_divide(in_shape, window_strides)).astype(int)
+  pad_sizes = [_max((out_size - 1) * stride + filter_size - in_size, 0)
+               for out_size, stride, filter_size, in_size
+               in zip(out_shape, window_strides, filter_shape, in_shape)]
+  return [(pad_size // 2, pad_size - pad_size // 2) for pad_size in pad_sizes]
 
 def _conv_view(lhs, rhs_shape, window_strides, pads, pad_value):
   """Compute the view (and its axes) of a convolution or window reduction."""

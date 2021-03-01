@@ -528,10 +528,8 @@ def _rand_dtype(rand, shape, dtype, scale=1., post=lambda x: x):
     to rand but scaled, converted to the appropriate dtype, and post-processed.
   """
   r = lambda: np.asarray(scale * rand(*_dims_of_shape(shape)), dtype)
-  if _dtypes.issubdtype(dtype, np.complexfloating):
-    vals = r() + 1.0j * r()
-  else:
-    vals = r()
+  vals = (r() + 1.0j * r()
+          if _dtypes.issubdtype(dtype, np.complexfloating) else r())
   return _cast_to_shape(np.asarray(post(vals), dtype), shape, dtype)
 
 
@@ -743,8 +741,7 @@ def check_raises_regexp(thunk, err_type, pattern):
 
 def iter_eqns(jaxpr):
   # TODO(necula): why doesn't this search in params?
-  for eqn in jaxpr.eqns:
-    yield eqn
+  yield from jaxpr.eqns
   for subjaxpr in core.subjaxprs(jaxpr):
     yield from iter_eqns(subjaxpr)
 

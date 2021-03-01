@@ -314,7 +314,7 @@ def segment_sum(data,
                 num_segments=None,
                 indices_are_sorted=False,
                 unique_indices=False,
-                bucket_size=None): # TODO(zhangqiaorjc): use non-None default.
+                bucket_size=None):  # TODO(zhangqiaorjc): use non-None default.
   """Computes the sum within segments of an array.
 
   Similar to TensorFlow's segment_sum:
@@ -357,11 +357,16 @@ def segment_sum(data,
 
   # Bucketize indices and perform segment_sum on each bucket to improve
   # numerical stability.
-  outs = []
-  for sub_data, sub_segment_ids in zip(
-      jnp.array_split(data, num_buckets),
-      jnp.array_split(segment_ids, num_buckets)):
-    outs.append(
-        segment_sum(sub_data, sub_segment_ids, num_segments, indices_are_sorted,
-                    unique_indices))
+  outs = [
+      segment_sum(
+          sub_data,
+          sub_segment_ids,
+          num_segments,
+          indices_are_sorted,
+          unique_indices,
+      ) for sub_data, sub_segment_ids in zip(
+          jnp.array_split(data, num_buckets),
+          jnp.array_split(segment_ids, num_buckets),
+      )
+  ]
   return jnp.sum(jnp.stack(outs), axis=0)

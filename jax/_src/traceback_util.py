@@ -138,23 +138,21 @@ def api_boundary(fun):
     try:
       return fun(*args, **kwargs)
     except Exception as e:
-      if not is_under_reraiser(e):
-        filtered_tb, cause, filtered = None, None, None
-        try:
-          filtered_tb = filter_traceback_and_stack(e)
-          if filtered_tb:
-            msg = format_exception_only(e)
-            msg = f'{msg}\n\n{_jax_message_append}'
-            filtered = FilteredStackTrace(msg).with_traceback(filtered_tb)
-            cause = last_cause(e)
-            cause.__cause__ = filtered
-            raise
-          else:
-            raise
-        finally:
-          del filtered_tb
-          del cause
-          del filtered
-      else:
+      if is_under_reraiser(e):
         raise
+
+      filtered_tb, cause, filtered = None, None, None
+      try:
+        filtered_tb = filter_traceback_and_stack(e)
+        if filtered_tb:
+          msg = format_exception_only(e)
+          msg = f'{msg}\n\n{_jax_message_append}'
+          filtered = FilteredStackTrace(msg).with_traceback(filtered_tb)
+          cause = last_cause(e)
+          cause.__cause__ = filtered
+        raise
+      finally:
+        del filtered_tb
+        del cause
+        del filtered
   return reraise_with_filtered_traceback
