@@ -240,17 +240,15 @@ def _promote_shapes(fun_name, *args):
   """Prepend implicit leading singleton dimensions for Numpy broadcasting."""
   if len(args) < 2:
     return args
-  else:
-    shapes = [shape(arg) for arg in args]
-    nonscalar_ranks = [len(shp) for shp in shapes if shp]
-    if not nonscalar_ranks or len(set(nonscalar_ranks)) == 1:
-      return args
-    else:
-      if FLAGS.jax_numpy_rank_promotion != "allow":
-        _rank_promotion_warning_or_error(fun_name, shapes)
-      result_rank = len(lax.broadcast_shapes(*shapes))
-      return [broadcast_to(arg, (1,) * (result_rank - len(shp)) + shp)
-              for arg, shp in zip(args, shapes)]
+  shapes = [shape(arg) for arg in args]
+  nonscalar_ranks = [len(shp) for shp in shapes if shp]
+  if not nonscalar_ranks or len(set(nonscalar_ranks)) == 1:
+    return args
+  if FLAGS.jax_numpy_rank_promotion != "allow":
+    _rank_promotion_warning_or_error(fun_name, shapes)
+  result_rank = len(lax.broadcast_shapes(*shapes))
+  return [broadcast_to(arg, (1,) * (result_rank - len(shp)) + shp)
+          for arg, shp in zip(args, shapes)]
 
 def _rank_promotion_warning_or_error(fun_name, shapes):
   if FLAGS.jax_numpy_rank_promotion == "warn":
@@ -271,11 +269,10 @@ def _promote_dtypes(*args):
   # TODO(dougalm,mattjj): This is a performance bottleneck. Consider memoizing.
   if len(args) < 2:
     return args
-  else:
-    to_dtype_raw = dtypes._result_type_raw(*args)
-    weak_type = to_dtype_raw in set(dtypes._weak_types)
-    to_dtype = dtypes.canonicalize_dtype(to_dtype_raw)
-    return [lax.convert_element_type(x, to_dtype, weak_type) for x in args]
+  to_dtype_raw = dtypes._result_type_raw(*args)
+  weak_type = to_dtype_raw in set(dtypes._weak_types)
+  to_dtype = dtypes.canonicalize_dtype(to_dtype_raw)
+  return [lax.convert_element_type(x, to_dtype, weak_type) for x in args]
 
 def _promote_dtypes_inexact(*args):
   """Convenience function to apply Numpy argument dtype promotion.
@@ -710,10 +707,7 @@ def trapz(y, x=None, dx=1.0, axis: int = -1):
   _check_arraylike('trapz', y)
   y = moveaxis(y, axis, -1)
   if x is not None:
-    if ndim(x) == 1:
-      dx = diff(x)
-    else:
-      dx = moveaxis(diff(x, axis=axis), axis, -1)
+    dx = diff(x) if ndim(x) == 1 else moveaxis(diff(x, axis=axis), axis, -1)
   return 0.5 * (dx * (y[..., 1:] + y[..., :-1])).sum(-1)
 
 

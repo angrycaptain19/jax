@@ -568,10 +568,7 @@ def choice(key, a, shape=(), replace=True, p=None):
                     f"got {shape}")
   if np.ndim(a) not in [0, 1]:
     raise ValueError("a must be an integer or 1-dimensional")
-  if np.ndim(a) == 0:
-    a = int(a)
-  else:
-    a = _asarray(a)
+  a = int(a) if np.ndim(a) == 0 else _asarray(a)
   n_inputs = a if np.ndim(a) == 0 else len(a)
   n_draws = prod(shape)
   if n_draws == 0:
@@ -594,12 +591,11 @@ def choice(key, a, shape=(), replace=True, p=None):
       p_cuml = jnp.cumsum(p)
       r = p_cuml[-1] * (1 - uniform(key, shape))
       ind = jnp.searchsorted(p_cuml, r)
-      result = ind if np.ndim(a) == 0 else a[ind]
     else:
       # Gumbel top-k trick: https://timvieira.github.io/blog/post/2019/09/16/algorithms-for-sampling-without-replacement/
       g = -gumbel(key, (n_inputs,)) - jnp.log(p)
       ind = jnp.argsort(g)[:n_draws]
-      result = ind if np.ndim(a) == 0 else a[ind]
+    result = ind if np.ndim(a) == 0 else a[ind]
   return result.reshape(shape)
 
 
@@ -627,16 +623,16 @@ def normal(key: jnp.ndarray,
 
 @partial(jit, static_argnums=(1, 2))
 def _normal(key, shape, dtype) -> jnp.ndarray:
-  if dtypes.issubdtype(dtype, np.complexfloating):
-    sqrt2 = np.array(np.sqrt(2), dtype)
-
-    key_re, key_im = split(key)
-    dtype = dtypes.dtype_real(dtype)
-    _re = _normal_real(key_re, shape, dtype)
-    _im = _normal_real(key_im, shape, dtype)
-    return 1 / sqrt2 * (_re + 1j * _im)
-  else:
+  if not dtypes.issubdtype(dtype, np.complexfloating):
     return _normal_real(key, shape, dtype) # type: ignore
+
+  sqrt2 = np.array(np.sqrt(2), dtype)
+
+  key_re, key_im = split(key)
+  dtype = dtypes.dtype_real(dtype)
+  _re = _normal_real(key_re, shape, dtype)
+  _im = _normal_real(key_im, shape, dtype)
+  return 1 / sqrt2 * (_re + 1j * _im)
 
 @partial(jit, static_argnums=(1, 2))
 def _normal_real(key, shape, dtype) -> jnp.ndarray:

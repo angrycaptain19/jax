@@ -317,11 +317,10 @@ def extract_call_jaxpr(
   """
   if not (primitive.call_primitive or primitive.map_primitive):
     return (None, params)
-  else:
-    assert "call_jaxpr" in params
-    new_params = dict(params)
-    del new_params["call_jaxpr"]
-    return (params["call_jaxpr"], new_params)
+  assert "call_jaxpr" in params
+  new_params = dict(params)
+  del new_params["call_jaxpr"]
+  return (params["call_jaxpr"], new_params)
 
 
 def traverse_jaxpr_params(f, params):
@@ -742,11 +741,11 @@ def trace_state_clean() -> bool:
 
 def reset_trace_state() -> bool:
   "Reset the global trace state and return True if it was already clean."
-  if not trace_state_clean():
-    thread_local_state.trace_state.__init__()  # type: ignore
-    return False
-  else:
+  if trace_state_clean():
     return True
+
+  thread_local_state.trace_state.__init__()  # type: ignore
+  return False
 
 def cur_sublevel() -> Sublevel:
   return thread_local_state.trace_state.substack[-1]
@@ -1114,11 +1113,11 @@ class ShapedArray(UnshapedArray):
 
   def str_short(self):
     shapestr = ','.join(map(str, self.shape))
-    if self.named_shape:
-      named_shapestr = ','.join(f'{k}:{v}' for k, v in self.named_shape.items())
-      return f'{self.dtype.name}[{shapestr};{named_shapestr}]'
-    else:
+    if not self.named_shape:
       return f'{self.dtype.name}[{shapestr}]'
+
+    named_shapestr = ','.join(f'{k}:{v}' for k, v in self.named_shape.items())
+    return f'{self.dtype.name}[{shapestr};{named_shapestr}]'
 
   def strip_named_shape(self):
     return self.update(named_shape={})
@@ -1261,8 +1260,9 @@ def canonicalize_named_shape(named_shape):
   return dict(sorted(named_shape.items()))
 
 def join_named_shapes(*named_shapes):
-  named_shape_tuples = sorted(set(
-      item for named_shape in named_shapes for item in named_shape.items()))
+  named_shape_tuples = sorted(
+      {item
+       for named_shape in named_shapes for item in named_shape.items()})
   if not named_shape_tuples:
     return {}
   names, sizes = unzip2(named_shape_tuples)

@@ -196,8 +196,7 @@ def _cofactor_solve(a, b):
   a_shape = jnp.shape(a)
   b_shape = jnp.shape(b)
   a_ndims = len(a_shape)
-  if not (a_ndims >= 2 and a_shape[-1] == a_shape[-2]
-    and b_shape[-2:] == a_shape[-2:]):
+  if a_ndims < 2 or a_shape[-1] != a_shape[-2] or b_shape[-2:] != a_shape[-2:]:
     msg = ("The arguments to _cofactor_solve must have shapes "
            "a=[..., m, m] and b=[..., m, m]; got a={} and b={}")
     raise ValueError(msg.format(a_shape, b_shape))

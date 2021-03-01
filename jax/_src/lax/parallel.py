@@ -448,12 +448,12 @@ class XeinsumSpecParser:
     return self.spec[self.pos]
 
   def parse_subscript(self):
-    if self.cur in string.ascii_lowercase:
-      out = self.cur
-      self.pos += 1
-      return out, True
-    else:
+    if self.cur not in string.ascii_lowercase:
       return None, False
+
+    out = self.cur
+    self.pos += 1
+    return out, True
 
   def parse_axis_name(self):
     try:
@@ -489,18 +489,17 @@ class XeinsumSpecParser:
       return False, (subscripts, names)
     if self.maybe_take(','):
       return True, (subscripts, names)
-    else:
-      assert self.maybe_take('{')
-      first = True
-      while not self.maybe_take('}'):
-        if not first:
-          assert self.maybe_take(',')
-        first = False
-        if self.eof:
-          raise ValueError("Unterminated named axis brace")
-        axis_name = self.parse_axis_name()
-        names.append(axis_name)
-      return self.maybe_take(',', False), (subscripts, names)
+    assert self.maybe_take('{')
+    first = True
+    while not self.maybe_take('}'):
+      if not first:
+        assert self.maybe_take(',')
+      first = False
+      if self.eof:
+        raise ValueError("Unterminated named axis brace")
+      axis_name = self.parse_axis_name()
+      names.append(axis_name)
+    return self.maybe_take(',', False), (subscripts, names)
 
   def parse_args(self):
     arg_specs = []
@@ -763,7 +762,7 @@ def _ppermute_translation_rule(c, x, *, axis_name, axis_env, perm, platform):
   replica_groups = _replica_groups(axis_env, axis_name, None)
   group_size = len(replica_groups[0])
   srcs, dsts = unzip2((src % group_size, dst % group_size) for src, dst in perm)
-  if not (len(srcs) == len(set(srcs)) and len(dsts) == len(set(dsts))):
+  if len(srcs) != len(set(srcs)) or len(dsts) != len(set(dsts)):
     msg = "ppermute sources and destinations must be unique, got {}."
     raise ValueError(msg.format(perm))
 
@@ -830,21 +829,20 @@ def _all_to_all_translation_rule(c, x, *, split_axis, concat_axis, axis_name,
   elif (platform == "tpu") or ((platform == "gpu") and (split_axis == 0) and
                                (concat_axis == 0)):
     split_count = len(replica_groups[0])
-    if not all(split_count == len(g) for g in replica_groups):
+    if any(split_count != len(g) for g in replica_groups):
       raise ValueError('Replica groups must be equally sized')
     replica_groups_protos = xc.make_replica_groups(replica_groups)
     if concat_axis == split_axis:
       return xops.AllToAll(x, split_axis, concat_axis, split_count,
                            replica_groups_protos)
-    else:
-      if concat_axis < split_axis:
-        split_axis += 1
-      elif split_axis < concat_axis:
-        concat_axis += 1
-      x = xla.lower_fun(partial(lax.expand_dims, dimensions=(concat_axis,)), multiple_results=False)(c, x)
-      x = xops.AllToAll(x, split_axis, concat_axis, split_count, replica_groups_protos)
-      x = xla.lower_fun(partial(lax.squeeze, dimensions=(split_axis,)), multiple_results=False)(c, x)
-      return x
+    if concat_axis < split_axis:
+      split_axis += 1
+    elif split_axis < concat_axis:
+      concat_axis += 1
+    x = xla.lower_fun(partial(lax.expand_dims, dimensions=(concat_axis,)), multiple_results=False)(c, x)
+    x = xops.AllToAll(x, split_axis, concat_axis, split_count, replica_groups_protos)
+    x = xla.lower_fun(partial(lax.squeeze, dimensions=(split_axis,)), multiple_results=False)(c, x)
+    return x
   else:
     warnings.warn(
         "all_to_all (and pswapaxes) are only implemented properly for TPUs and GPUs (if "
@@ -1131,7 +1129,7 @@ def _pdot_impl(x, y, *, axis_name, pos_contract, pos_batch):
 @pdot_p.def_abstract_eval
 def _pdot_abstract_eval(x, y, *, axis_name, pos_contract, pos_batch):
   # TODO: avals with names, check inputs are mapped along axis_name, eliminate
-  if not len(set(axis_name)) == len(axis_name): raise ValueError
+  if len(set(axis_name)) != len(axis_name): raise ValueError
   return lax.dot_general_p.abstract_eval(
       x, y, dimension_numbers=[pos_contract, pos_batch],
       precision=None, preferred_element_type=None)

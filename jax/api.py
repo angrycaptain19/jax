@@ -604,10 +604,9 @@ def xla_computation(fun: Callable,
   def make_axis_env(nreps):
     if axis_env is None:
       return xla.AxisEnv(nreps, (), ())
-    else:
-      nreps = nreps * prod(size for name, size in axis_env)
-      names, sizes = unzip2(axis_env)
-      return xla.AxisEnv(nreps, names, sizes)
+    nreps = nreps * prod(size for name, size in axis_env)
+    names, sizes = unzip2(axis_env)
+    return xla.AxisEnv(nreps, names, sizes)
 
   @wraps(fun)
   @api_boundary
@@ -907,8 +906,9 @@ def _check_input_dtype_jacfwd(holomorphic, x):
   _check_arg(x)
   aval = core.get_aval(x)
   if holomorphic:
-    if not (dtypes.issubdtype(aval.dtype, np.complexfloating) and
-            not dtypes.issubdtype(aval.dtype, np.floating)):
+    if not dtypes.issubdtype(aval.dtype,
+                             np.complexfloating) or dtypes.issubdtype(
+                                 aval.dtype, np.floating):
       raise TypeError("jacfwd with holomorphic=True requires inputs with complex dtype, "
                       f"but got {aval.dtype.name}.")
   elif not dtypes.issubdtype(aval.dtype, np.floating):
@@ -920,10 +920,9 @@ def _check_input_dtype_jacfwd(holomorphic, x):
 
 def _check_output_dtype_jacfwd(holomorphic, x):
   aval = core.get_aval(x)
-  if holomorphic:
-    if not dtypes.issubdtype(aval.dtype, np.complexfloating):
-      raise TypeError("jacfwd with holomorphic=True requires outputs with complex dtype, "
-                      f"but got {aval.dtype.name}.")
+  if holomorphic and not dtypes.issubdtype(aval.dtype, np.complexfloating):
+    raise TypeError("jacfwd with holomorphic=True requires outputs with complex dtype, "
+                    f"but got {aval.dtype.name}.")
 
 
 def jacrev(fun: Callable, argnums: Union[int, Sequence[int]] = 0,
@@ -2528,7 +2527,7 @@ def defjvp_all(fun, custom_jvp):
     num_consts, in_tree = params['num_consts'], params['in_tree']
     _, args_flat = split_list(primals, [num_consts])
     consts_dot, args_dot_flat = split_list(tangents, [num_consts])
-    if not all(type(t) is ad_util.Zero for t in consts_dot):
+    if any(type(t) is not ad_util.Zero for t in consts_dot):
       raise ValueError("Detected differentiation with respect to closed-over values with "
                        "custom JVP rule, which isn't supported.")
     args_dot_flat = map(ad.instantiate_zeros, args_dot_flat)

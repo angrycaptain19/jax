@@ -359,14 +359,15 @@ class EvalTrace(Trace):
 
 trace_stack.append(MainTrace(0, EvalTrace, None))  # special bottom of the stack
 
-impl_rules = {}
-impl_rules[add_p] = np.add
-impl_rules[mul_p] = np.multiply
-impl_rules[neg_p] = np.negative
-impl_rules[sin_p] = np.sin
-impl_rules[cos_p] = np.cos
-impl_rules[reduce_sum_p] = np.sum
-impl_rules[greater_p] = np.greater
+impl_rules = {
+    add_p: np.add,
+    mul_p: np.multiply,
+    neg_p: np.negative,
+    sin_p: np.sin,
+    cos_p: np.cos,
+    reduce_sum_p: np.sum,
+    greater_p: np.greater,
+}
 
 
 # -
@@ -376,8 +377,7 @@ impl_rules[greater_p] = np.greater
 # +
 def f(x):
   y = sin(x) * 2
-  z = - y + x
-  return z
+  return - y + x
 
 print(f(3.0))
 
@@ -501,8 +501,7 @@ print(cos(3.0))
 # +
 def f(x):
   y = sin(x) * 2
-  z = - y + x
-  return z
+  return - y + x
 
 x, xdot = 3., 1.
 y, ydot = jvp(f, (x,), (xdot,))
@@ -546,12 +545,12 @@ def mapped_aval(batch_dim, aval):
   return ShapedArray(tuple(shape), aval.dtype)
 
 def move_batch_axis(axis_size, src, dst, x):
-  if src is not_mapped:
-    target_shape = list(np.shape(x))
-    target_shape.insert(dst, axis_size)
-    return np.broadcast_to(np.expand_dims(x, dst), target_shape)
-  else:
+  if src is not not_mapped:
     return np.moveaxis(x, src, dst)
+
+  target_shape = list(np.shape(x))
+  target_shape.insert(dst, axis_size)
+  return np.broadcast_to(np.expand_dims(x, dst), target_shape)
 
 
 # -

@@ -56,10 +56,7 @@ def benchmark(f: Callable[[], Any], iters: Optional[int] = None,
     target_total_secs = int(os.getenv("TARGET_TOTAL_SECS", "10"))
 
   if warmup is None:
-    if iters is None:
-      warmup = 1
-    else:
-      warmup = np.clip(1, iters // 10, 10)
+    warmup = 1 if iters is None else np.clip(1, iters // 10, 10)
   for _ in range(warmup):
     f()
 

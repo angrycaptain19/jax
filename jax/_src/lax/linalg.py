@@ -362,20 +362,19 @@ def eig_translation_rule(c, operand, *, compute_left_eigenvectors,
 
 def eig_abstract_eval(operand, *, compute_left_eigenvectors,
                       compute_right_eigenvectors):
-  if isinstance(operand, ShapedArray):
-    if operand.ndim < 2 or operand.shape[-2] != operand.shape[-1]:
-      raise ValueError("Argument to nonsymmetric eigendecomposition must have "
-                       "shape [..., n, n], got shape {}".format(operand.shape))
-
-    batch_dims = operand.shape[:-2]
-    n = operand.shape[-1]
-    dtype = np.complex64 if dtypes.finfo(operand.dtype).bits == 32 else np.complex128
-    dtype = dtypes.canonicalize_dtype(dtype)
-    vl = vr = operand.update(shape=batch_dims + (n, n), dtype=dtype)
-    w = operand.update(shape=batch_dims + (n,), dtype=dtype)
-  else:
+  if not isinstance(operand, ShapedArray):
     raise NotImplementedError
 
+  if operand.ndim < 2 or operand.shape[-2] != operand.shape[-1]:
+    raise ValueError("Argument to nonsymmetric eigendecomposition must have "
+                     "shape [..., n, n], got shape {}".format(operand.shape))
+
+  batch_dims = operand.shape[:-2]
+  n = operand.shape[-1]
+  dtype = np.complex64 if dtypes.finfo(operand.dtype).bits == 32 else np.complex128
+  dtype = dtypes.canonicalize_dtype(dtype)
+  vl = vr = operand.update(shape=batch_dims + (n, n), dtype=dtype)
+  w = operand.update(shape=batch_dims + (n,), dtype=dtype)
   output = [w]
   if compute_left_eigenvectors:
     output.append(vl)
@@ -685,15 +684,14 @@ def _triangular_solve_cpu_translation_rule(
     return lapack.jax_trsm(
       c, xb.constant(c, np.array(1, dtype=dtype)),
       a, b, left_side, lower, transpose_a, conjugate_a, unit_diagonal)
+  # Fall back to the HLO implementation for unsupported types or batching.
+  # TODO: Consider swapping XLA for LAPACK in batched case
+  if not transpose_a:
+    transpose = xops.TriangularSolveOptions_Transpose.NO_TRANSPOSE
   else:
-    # Fall back to the HLO implementation for unsupported types or batching.
-    # TODO: Consider swapping XLA for LAPACK in batched case
-    if not transpose_a:
-      transpose = xops.TriangularSolveOptions_Transpose.NO_TRANSPOSE
-    else:
-      transpose = (xops.TriangularSolveOptions_Transpose.ADJOINT if conjugate_a
-                   else xops.TriangularSolveOptions_Transpose.TRANSPOSE)
-    return xops.TriangularSolve(a, b, left_side, lower, unit_diagonal, transpose)
+    transpose = (xops.TriangularSolveOptions_Transpose.ADJOINT if conjugate_a
+                 else xops.TriangularSolveOptions_Transpose.TRANSPOSE)
+  return xops.TriangularSolve(a, b, left_side, lower, unit_diagonal, transpose)
 
 xla.backend_specific_translations['cpu'][triangular_solve_p] = \
   _triangular_solve_cpu_translation_rule
@@ -711,15 +709,14 @@ def _triangular_solve_gpu_translation_rule(trsm_impl,
     return trsm_impl(
       c, a, b, left_side, lower, transpose_a,
       conjugate_a, unit_diagonal)
+  # Use the XLA implementation for unbatched triangular_solve.
+  if not transpose_a:
+    transpose = xops.TriangularSolveOptions_Transpose.NO_TRANSPOSE
   else:
-    # Use the XLA implementation for unbatched triangular_solve.
-    if not transpose_a:
-      transpose = xops.TriangularSolveOptions_Transpose.NO_TRANSPOSE
-    else:
-      transpose = (xops.TriangularSolveOptions_Transpose.ADJOINT if conjugate_a
-                   else xops.TriangularSolveOptions_Transpose.TRANSPOSE)
-    return xops.TriangularSolve(a, b, left_side, lower, unit_diagonal,
-                                transpose)
+    transpose = (xops.TriangularSolveOptions_Transpose.ADJOINT if conjugate_a
+                 else xops.TriangularSolveOptions_Transpose.TRANSPOSE)
+  return xops.TriangularSolve(a, b, left_side, lower, unit_diagonal,
+                              transpose)
 
 if cusolver is not None:
   xla.backend_specific_translations['gpu'][triangular_solve_p] = \
@@ -904,11 +901,11 @@ def _lu_cpu_gpu_translation_rule(getrf_impl, c, operand):
 
 
 def _lu_tpu_translation_rule(c, operand):
-  if hasattr(xops, "LU"):
-    lu, pivot, perm = xops.LU(operand)
-    return xops.Tuple(c, [lu, pivot, perm])
-  else:
+  if not hasattr(xops, "LU"):
     return xla.lower_fun(_lu_python, multiple_results=True)(c, operand)
+
+  lu, pivot, perm = xops.LU(operand)
+  return xops.Tuple(c, [lu, pivot, perm])
 
 
 lu_p = Primitive('lu')
@@ -979,7 +976,7 @@ def _lu_solve_core(lu, permutation, b, trans):
     x = x[permutation, :]
     x = triangular_solve(lu, x, left_side=True, lower=True, unit_diagonal=True)
     x = triangular_solve(lu, x, left_side=True, lower=False)
-  elif trans == 1 or trans == 2:
+  elif trans in [1, 2]:
     conj = trans == 2
     x = triangular_solve(lu, x, left_side=True, lower=False, transpose_a=True,
                          conjugate_a=conj)
@@ -1158,23 +1155,22 @@ def svd_translation_rule(c, operand, full_matrices, compute_uv):
 
 
 def svd_abstract_eval(operand, full_matrices, compute_uv):
-  if isinstance(operand, ShapedArray):
-    if operand.ndim < 2:
-      raise ValueError("Argument to singular value decomposition must have ndims >= 2")
-
-    batch_dims = operand.shape[:-2]
-    m = operand.shape[-2]
-    n = operand.shape[-1]
-    s = operand.update(shape=batch_dims + (min(m, n),),
-                       dtype=lax_internal._complex_basetype(operand.dtype))
-    if compute_uv:
-      u = operand.update(shape=batch_dims + (m, m if full_matrices else min(m, n)))
-      vt = operand.update(shape=batch_dims + (n if full_matrices else min(m, n), n))
-      return s, u, vt
-    else:
-      return s,
-  else:
+  if not isinstance(operand, ShapedArray):
     raise NotImplementedError
+  if operand.ndim < 2:
+    raise ValueError("Argument to singular value decomposition must have ndims >= 2")
+
+  batch_dims = operand.shape[:-2]
+  m = operand.shape[-2]
+  n = operand.shape[-1]
+  s = operand.update(shape=batch_dims + (min(m, n),),
+                     dtype=lax_internal._complex_basetype(operand.dtype))
+  if compute_uv:
+    u = operand.update(shape=batch_dims + (m, m if full_matrices else min(m, n)))
+    vt = operand.update(shape=batch_dims + (n if full_matrices else min(m, n), n))
+    return s, u, vt
+  else:
+    return s,
 
 def svd_jvp_rule(primals, tangents, full_matrices, compute_uv):
   A, = primals

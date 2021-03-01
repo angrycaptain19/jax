@@ -71,9 +71,8 @@ class Config:
   def read(self, name):
     if self.use_absl:
       return getattr(self.absl_flags.FLAGS, name)
-    else:
-      self.check_exists(name)
-      return self.values[name]
+    self.check_exists(name)
+    return self.values[name]
 
   def add_option(self, name, default, opt_type, meta_args, meta_kwargs):
     if name in self.values:

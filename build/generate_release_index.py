@@ -20,6 +20,7 @@ To update public copy, use:
 gsutil cp jax_releases.html gs://jax-releases/
 """
 
+
 import subprocess
 
 FILENAME = "jax_releases.html"
@@ -41,7 +42,7 @@ with open(FILENAME, "w") as f:
   f.write(HEADER)
   for line in ls_output.decode("utf-8").split("\n"):
     # Skip incorrectly formatted wheel filenames and other gsutil output
-    if not "+cuda" in line: continue
+    if "+cuda" not in line: continue
     # Example line:
     # gs://jax-releases/cuda101/jaxlib-0.1.52+cuda101-cp38-none-manylinux2010_x86_64.whl
     assert line.startswith("gs://jax-releases/cuda")

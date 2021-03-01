@@ -72,7 +72,7 @@ def _map_coordinates(input, coordinates, order, mode, cval):
         'Currently supported modes are {}.'.format(mode, set(_INDEX_FIXERS)))
 
   if mode == 'constant':
-    is_valid = lambda index, size: (0 <= index) & (index < size)
+    is_valid = lambda index, size: (index >= 0) & (index < size)
   else:
     is_valid = lambda index, size: True
 
